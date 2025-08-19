@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Symbiotic Puppetry: An H/S/L Interface</title>
+
+    <!-- MediaPipe for pose detection -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+            background-color: #050510;
+            color: white;
+            height: 100%;
+        }
+
+        .container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #simulation-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+        }
+
+        #video-canvas {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            border-radius: 12px;
+            width: 320px;
+            height: 240px;
+            z-index: 20;
+            border: 2px solid rgba(100, 120, 255, 0.5);
+            background-color: black;
+            box-shadow: 0 0 20px rgba(80, 100, 255, 0.3);
+        }
+        
+        .hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(10, 10, 20, 0.8);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(100, 120, 255, 0.5);
+            backdrop-filter: blur(10px);
+            font-size: 14px;
+            line-height: 1.6;
+            width: 300px;
+        }
+        
+        .hud h2 {
+            margin-top: 0;
+            color: #88aaff;
+            font-size: 16px;
+            border-bottom: 1px solid #445599;
+            padding-bottom: 8px;
+            margin-bottom: 12px;
+        }
+
+        .hud-value {
+            font-weight: bold;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .panel {
+            background: rgba(20, 20, 40, 0.9);
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 600px;
+            width: 90%;
+            color: white;
+            text-align: center;
+            box-shadow: 0 0 40px rgba(80, 100, 255, 0.6);
+            border: 1px solid rgba(100, 120, 255, 0.6);
+        }
+
+        .start-button {
+            background: linear-gradient(to right, #4a5dc7, #6f42c1);
+            border: none;
+            border-radius: 30px;
+            padding: 14px 36px;
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-top: 20px;
+        }
+
+        .start-button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.4);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <canvas id="simulation-canvas"></canvas>
+        <canvas id="video-canvas"></canvas>
+
+        <div class="hud">
+            <h2>SYSTEM STATE</h2>
+            <div>Overall Rhythm: <span id="human-state" class="hud-value">...</span></div>
+            <div>Joints Rhythm: <span id="sim-state" class="hud-value">...</span></div>
+            <div>Sync Level: <span id="resonance-level" class="hud-value">0%</span></div>
+        </div>
+
+        <div class="overlay" id="welcome-overlay">
+            <div class="panel">
+                <h1>Symbiotic Puppetry</h1>
+                <p>Your body's rhythm will become the language that controls a digital organism. Find a state of resonance where your movements and the simulation are in harmony.</p>
+                <button class="start-button" id="start-button">Begin Connection</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* ----- CONFIGURATION ----- */
+        const videoWidth = 320, videoHeight = 240;
+
+        /* ----- DOM & CANVAS SETUP ----- */
+        const videoCanvas = document.getElementById('video-canvas');
+        const simCanvas = document.getElementById('simulation-canvas');
+        const videoCtx = videoCanvas.getContext('2d');
+        const simCtx = simCanvas.getContext('2d');
+        
+        const humanStateEl = document.getElementById('human-state');
+        const simStateEl = document.getElementById('sim-state');
+        const resonanceEl = document.getElementById('resonance-level');
+
+        function handleResize() {
+            simCanvas.width = window.innerWidth;
+            simCanvas.height = window.innerHeight;
+            videoCanvas.width = videoWidth;
+            videoCanvas.height = videoHeight;
+        }
+        handleResize();
+        window.addEventListener('resize', handleResize);
+
+        /* ----- HUMAN STATE ANALYSIS (OVERALL RHYTHM) ----- */
+        const humanState = {
+            state: 's', // 'h', 's', or 'l'
+            energy: 0,
+            history: [],
+            
+            update(landmarks) {
+                if (!landmarks || landmarks.length === 0 || !bodyOrganism.joints[15] || !bodyOrganism.joints[16]) return;
+                const leftHand = landmarks[15];
+                const rightHand = landmarks[16];
+                if (leftHand.visibility < 0.5 || rightHand.visibility < 0.5) return;
+
+                const newEnergy = bodyOrganism.joints[15].energy + bodyOrganism.joints[16].energy;
+                this.energy = 0.8 * this.energy + 0.2 * newEnergy;
+                this.history.push(this.energy);
+                if (this.history.length > 50) this.history.shift();
+                
+                this.determineState();
+            },
+
+            determineState() {
+                if (this.history.length < 20) { this.state = 's'; return; }
+                const avgEnergy = this.history.reduce((a, b) => a + b, 0) / this.history.length;
+                const stdDev = Math.sqrt(this.history.map(x => Math.pow(x - avgEnergy, 2)).reduce((a, b) => a + b) / this.history.length);
+
+                if (this.energy > 30) { this.state = 'h'; } 
+                else if (stdDev < 1.5 && avgEnergy < 4.0) { this.state = 'l'; }
+                else { this.state = 's'; }
+            }
+        };
+
+        /* ----- FRACTAL JOINT (MICRO-ORGANISM) ----- */
+        class FractalJoint {
+            constructor(index) {
+                this.index = index;
+                this.pos = { x: 0, y: 0 };
+                this.lastPos = null;
+                this.vel = { x: 0, y: 0 };
+                this.energy = 0;
+                this.history = [];
+                this.state = 's';
+                this.branches = [];
+                this.forcedStateTimer = 0;
+            }
+
+            update(landmark, deltaTime) {
+                this.pos = { x: landmark.x * simCanvas.width, y: landmark.y * simCanvas.height };
+
+                if (this.lastPos) {
+                    this.vel = { x: this.pos.x - this.lastPos.x, y: this.pos.y - this.lastPos.y };
+                    const speed = Math.hypot(this.vel.x, this.vel.y);
+                    this.energy = 0.8 * this.energy + 0.2 * speed;
+                    this.history.push(this.energy);
+                    if (this.history.length > 30) this.history.shift();
+                }
+                this.lastPos = { ...this.pos };
+
+                if (this.forcedStateTimer > 0) {
+                    this.forcedStateTimer -= deltaTime;
+                } else {
+                    this.determineState();
+                }
+                this.updateFractal();
+            }
+
+            determineState() {
+                if (this.history.length < 15) { this.state = 's'; return; }
+                const avgEnergy = this.history.reduce((a, b) => a + b, 0) / this.history.length;
+                const stdDev = Math.sqrt(this.history.map(x => Math.pow(x - avgEnergy, 2)).reduce((a, b) => a + b) / this.history.length);
+
+                if (this.energy > 15) { this.state = 'h'; } 
+                else if (stdDev < 1.0 && avgEnergy < 2.0) { this.state = 'l'; }
+                else { this.state = 's'; }
+            }
+
+            forceState(newState, duration) {
+                this.state = newState;
+                this.forcedStateTimer = duration;
+            }
+
+            updateFractal() {
+                const speed = Math.hypot(this.vel.x, this.vel.y);
+                if (speed > 1) {
+                    const baseAngle = Math.atan2(this.vel.y, this.vel.x) + Math.PI;
+                    if (this.state === 's' && this.branches.length < 5 && Math.random() < 0.2) {
+                        this.spawnBranch(baseAngle, 1, 3);
+                    } else if (this.state === 'h' && this.branches.length < 15 && Math.random() < 0.8) {
+                        this.spawnBranch(baseAngle, 2, 5);
+                    }
+                }
+
+                this.branches.forEach(b => {
+                    b.pos.x += b.vel.x;
+                    b.pos.y += b.vel.y;
+                    b.vel.x *= 0.9;
+                    b.vel.y *= 0.9;
+                    b.life -= 0.015;
+                });
+
+                if (this.state === 'l') {
+                    this.branches.forEach(b => b.life -= 0.05);
+                }
+
+                this.branches = this.branches.filter(b => b.life > 0);
+            }
+
+            spawnBranch(baseAngle, speed, life) {
+                 const angle = baseAngle + (Math.random() - 0.5) * 1.5;
+                 this.branches.push({
+                    pos: { ...this.pos },
+                    vel: { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed },
+                    life: life
+                });
+            }
+
+            draw(ctx) {
+                this.branches.forEach(b => {
+                    ctx.beginPath();
+                    ctx.moveTo(b.pos.x, b.pos.y);
+                    const endX = b.pos.x - b.vel.x * 5;
+                    const endY = b.pos.y - b.vel.y * 5;
+                    ctx.lineTo(endX, endY);
+
+                    let alpha = Math.max(0, b.life / 2);
+                    let color;
+                    if (this.state === 'h') color = `hsla(0, 80%, 70%, ${alpha})`;
+                    else color = `hsla(200, 80%, 80%, ${alpha * 0.7})`;
+                    
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 1 + b.life;
+                    ctx.stroke();
+                });
+
+                let color;
+                let radius = 10;
+                if (this.state === 'l') {
+                    color = `hsla(120, 80%, 60%, 0.9)`;
+                    radius = 8;
+                } else if (this.state === 's') {
+                    color = `hsla(200, 80%, 70%, 0.9)`;
+                    radius = 12;
+                } else { // 'h'
+                    color = `hsla(0, 80%, 60%, 1.0)`;
+                    radius = 15 + Math.random() * 5;
+                }
+                ctx.beginPath();
+                ctx.arc(this.pos.x, this.pos.y, radius, 0, Math.PI * 2);
+                ctx.fillStyle = color;
+                ctx.shadowColor = color;
+                ctx.shadowBlur = 15;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        /* ----- BODY ORGANISM (COLLECTION OF JOINTS) ----- */
+        const bodyOrganism = {
+            joints: [],
+            adjacencyList: null,
+            init() { /* Populated dynamically */ },
+            update(landmarks, deltaTime) {
+                if (!landmarks) return;
+                if (this.joints.length !== landmarks.length) {
+                    this.joints = landmarks.map((_, i) => new FractalJoint(i));
+                }
+                
+                landmarks.forEach((lm, i) => {
+                    if (this.joints[i] && lm.visibility > 0.3) {
+                        this.joints[i].update(lm, deltaTime);
+                    }
+                });
+
+                this.applyContagion();
+            },
+            applyContagion() {
+                if (!window.POSE_CONNECTIONS || this.joints.length === 0) return;
+
+                if (!this.adjacencyList) {
+                    this.adjacencyList = new Array(this.joints.length).fill(0).map(() => []);
+                    window.POSE_CONNECTIONS.forEach(([start, end]) => {
+                        this.adjacencyList[start].push(end);
+                        this.adjacencyList[end].push(start);
+                    });
+                }
+
+                this.joints.forEach((joint, i) => {
+                    if (joint.state === 'h' && Math.random() < 0.08) { // h-states are highly contagious
+                        const neighbors = this.adjacencyList[i];
+                        if (neighbors) {
+                            neighbors.forEach(neighborIndex => {
+                                if (this.joints[neighborIndex] && Math.random() < 0.4) {
+                                    this.joints[neighborIndex].forceState('h', 0.4); 
+                                }
+                            });
+                        }
+                    } else if (joint.state === 'l' && Math.random() < 0.03) { // l-states are calming and spread slowly
+                        const neighbors = this.adjacencyList[i];
+                        if (neighbors) {
+                            neighbors.forEach(neighborIndex => {
+                                if (this.joints[neighborIndex] && Math.random() < 0.2) {
+                                    this.joints[neighborIndex].forceState('l', 0.6);
+                                }
+                            });
+                        }
+                    }
+                });
+            }
+        };
+        bodyOrganism.init();
+
+
+        /* ----- DRAWING & ANIMATION ----- */
+        function draw(results) {
+            simCtx.clearRect(0, 0, simCanvas.width, simCanvas.height);
+            videoCtx.clearRect(0, 0, videoCanvas.width, videoCanvas.height);
+
+            if (results.image) {
+                videoCtx.drawImage(results.image, 0, 0, videoCanvas.width, videoCanvas.height);
+            }
+
+            if (results.poseLandmarks) {
+                for (let i = 0; i < bodyOrganism.joints.length; i++) {
+                    for (let j = i + 1; j < bodyOrganism.joints.length; j++) {
+                        const jointA = bodyOrganism.joints[i];
+                        const jointB = bodyOrganism.joints[j];
+                        if (jointA.state === 'h' && jointB.state === 'h' && jointA.lastPos && jointB.lastPos) {
+                            const dist = Math.hypot(jointA.pos.x - jointB.pos.x, jointA.pos.y - jointB.pos.y);
+                            if (dist < simCanvas.width / 4) {
+                                simCtx.beginPath();
+                                simCtx.moveTo(jointA.pos.x, jointA.pos.y);
+                                simCtx.lineTo(jointB.pos.x, jointB.pos.y);
+                                simCtx.strokeStyle = `hsla(50, 100%, 70%, ${0.5 * (1 - dist / (simCanvas.width / 4))})`;
+                                simCtx.lineWidth = 1 + Math.random() * 2;
+                                simCtx.stroke();
+                            }
+                        }
+                    }
+                }
+                
+                bodyOrganism.joints.forEach(joint => {
+                    if (results.poseLandmarks[joint.index] && results.poseLandmarks[joint.index].visibility > 0.3) {
+                         joint.draw(simCtx);
+                    }
+                });
+            }
+        }
+        
+        function updateHUD() {
+            const humanRhythm = humanState.state.toUpperCase();
+            humanStateEl.textContent = humanRhythm;
+
+            if (bodyOrganism.joints.length > 0) {
+                const jointStates = bodyOrganism.joints.filter(j => j.lastPos).map(j => j.state);
+                if (jointStates.length > 0) {
+                    const stateCounts = jointStates.reduce((acc, state) => {
+                        acc[state] = (acc[state] || 0) + 1;
+                        return acc;
+                    }, {});
+                    
+                    const dominantState = Object.keys(stateCounts).reduce((a, b) => stateCounts[a] > stateCounts[b] ? a : b, 's');
+                    const dominantStateUpper = dominantState.toUpperCase();
+                    simStateEl.textContent = dominantStateUpper;
+
+                    const syncedJoints = jointStates.filter(state => state === humanState.state).length;
+                    const syncPercentage = (syncedJoints / jointStates.length) * 100;
+                    resonanceEl.textContent = `${Math.floor(syncPercentage)}%`;
+                    
+                    if (dominantStateUpper === 'L') simStateEl.style.backgroundColor = 'rgba(100, 255, 100, 0.3)';
+                    else if (dominantStateUpper === 'S') simStateEl.style.backgroundColor = 'rgba(100, 200, 255, 0.3)';
+                    else if (dominantStateUpper === 'H') simStateEl.style.backgroundColor = 'rgba(255, 100, 100, 0.4)';
+
+                    if (syncPercentage > 70) {
+                        resonanceEl.style.backgroundColor = 'rgba(255, 215, 0, 0.5)';
+                        resonanceEl.style.color = 'black';
+                    } else {
+                        resonanceEl.style.backgroundColor = 'transparent';
+                        resonanceEl.style.color = 'white';
+                    }
+                }
+            }
+            
+            if (humanRhythm === 'L') humanStateEl.style.backgroundColor = 'rgba(100, 255, 100, 0.3)';
+            else if (humanRhythm === 'S') humanStateEl.style.backgroundColor = 'rgba(100, 200, 255, 0.3)';
+            else if (humanRhythm === 'H') humanStateEl.style.backgroundColor = 'rgba(255, 100, 100, 0.4)';
+        }
+
+        /* ----- MEDIAPIPE SETUP & MAIN LOOP ----- */
+        let poseDetector;
+        let lastFrameTime = performance.now();
+
+        function onPoseResults(results) {
+            const now = performance.now();
+            const deltaTime = (now - lastFrameTime) / 1000;
+            lastFrameTime = now;
+
+            bodyOrganism.update(results.poseLandmarks, deltaTime);
+            humanState.update(results.poseLandmarks);
+            draw(results);
+            updateHUD();
+        }
+
+        async function startApp() {
+            document.getElementById('welcome-overlay').style.display = 'none';
+
+            poseDetector = new window.Pose({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+            });
+
+            poseDetector.setOptions({
+                modelComplexity: 1,
+                smoothLandmarks: true,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            poseDetector.onResults(onPoseResults);
+
+            const camera = new window.Camera(document.createElement('video'), {
+                onFrame: async () => {
+                    await poseDetector.send({ image: camera.video });
+                },
+                width: videoWidth,
+                height: videoHeight
+            });
+            await camera.start();
+        }
+
+        document.getElementById('start-button').addEventListener('click', startApp);
+
+    </script>
+</body>
+
+</html>
