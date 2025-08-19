@@ -31,6 +31,17 @@ mtx_poisson.py – Poisson/field demo that uses MTX events to steer a solver and
 
 conversation about mtx with ai.txt – notes/background.
 
+# SyntheticEEG.py: 
+
+script generates synthetic, EEG-like multichannel data from MTX (h/s/l) token sequences:
+It samples a token timeline with a simple semi-Markov process (loops, hubs, states), then converts it to MTX text.
+It renders an 8-channel signal at 250 Hz by summing band-limited sinusoids (δ/θ/α/β/γ) with different channel topographies,
+producing something EEG-ish (alpha stronger occipitally, beta/gamma frontally).
+
+It writes:
+synthetic_slx.wav (mono preview mixdown)
+synthetic_slx_signal.npz (arrays: sig [8×N], fs, t, tokens, mtx)
+Run it with python synthetic_eeg.py and you’ll see the printed MTX string and the two files saved.
 (File names may evolve; each HTML file is standalone.)
 
 How to run
@@ -47,7 +58,7 @@ then open http://localhost:8000/hslcity.html (or another page).
 
 Some pages may ask for camera permission (for interactive/pose demos). Allow it if you want the full effect.
 
-Python demo
+# Python demo
 
 Requirements: python 3.9+, numpy, matplotlib (and optionally scipy if prompted).
 
