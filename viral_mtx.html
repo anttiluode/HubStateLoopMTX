@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MTX Hive — Collective Intelligence Playground</title>
+<style>
+  :root{
+    --bg0:#05060a; --bg1:#0b1020; --bg2:#0e1730;
+    --ink:#e6f0ff; --muted:#9bb3ff; --glow:#7aa8ff; --ok:#27f59f; --warn:#ff7a7a; --hub:#ff56d8;
+    --s:#5aa8ff; --l:#3dffa0; --h:#ff56d8; --ui:#0e1530aa;
+  }
+  html,body{height:100%;margin:0;background:radial-gradient(1200px 800px at 20% 10%,var(--bg2),var(--bg1) 50%,var(--bg0));color:var(--ink);font:14px/1.4 system-ui,Segoe UI,Inter,Helvetica,Arial,sans-serif;}
+  #app{display:grid;grid-template-columns:1fr 340px;gap:14px;height:100%;padding:14px;box-sizing:border-box;}
+  #stageWrap{position:relative;border-radius:18px;overflow:hidden;box-shadow:0 10px 40px #0008;}
+  #stage{width:100%;height:100%;display:block;background:radial-gradient(1400px 1000px at 70% 60%,#10204044,#000000 70%);} 
+  #ui{display:flex;flex-direction:column;gap:12px}
+  .panel{background:var(--ui);backdrop-filter: blur(8px);border:1px solid #273055; border-radius:16px; padding:12px 14px;}
+  .panel h3{margin:0 0 8px 0;font-weight:700; font-size:15px; letter-spacing:.3px; color:var(--muted)}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  button, .chip{cursor:pointer;border:1px solid #2a3b66;background:#121a33;color:var(--ink);padding:8px 10px;border-radius:12px;transition:.15s;}
+  button:hover,.chip:hover{transform:translateY(-1px); box-shadow:0 8px 18px #0006}
+  input[type=text]{width:100%;border:1px solid #2a3b66;background:#0c1224;color:var(--ink);padding:10px 12px;border-radius:12px;}
+  .metric{display:flex;justify-content:space-between;align-items:center;margin:4px 0;color:#dfe7ff}
+  .bar{height:6px;background:#0c142e;border-radius:8px;overflow:hidden}
+  .bar > i{display:block;height:100%;background:linear-gradient(90deg,#5aa8ff,#ff56d8);box-shadow:0 0 12px #7aa8ff88 inset}
+  .legend{display:flex;gap:8px; flex-wrap:wrap}
+  .dot{width:10px;height:10px;border-radius:50%; display:inline-block; margin-right:6px}
+  .tag{padding:2px 8px;border-radius:10px;border:1px solid #2a3b66;color:var(--muted)}
+  .kbd{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;background:#0b1228;border:1px solid #223055;padding:1px 6px;border-radius:6px}
+  .note{color:#a6b8ff}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stageWrap">
+    <canvas id="stage"></canvas>
+  </div>
+  <div id="ui">
+    <div class="panel">
+      <h3>MTX Program</h3>
+      <div class="row">
+        <input id="mtx" type="text" placeholder="e.g. h0{0.2s} l3{3s} s1{2s}" />
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="runBtn">▶ Run</button>
+        <button id="surpriseBtn">✨ Surprise me</button>
+        <button id="clearBtn">⟲ Reset</button>
+      </div>
+      <div class="row" style="margin-top:8px;gap:6px">
+        <span class="chip" data-prog="EXPLORE">EXPLORE</span>
+        <span class="chip" data-prog="CONVERGE">CONVERGE</span>
+        <span class="chip" data-prog="SCATTER">SCATTER</span>
+        <span class="chip" data-prog="SHIELD">SHIELD</span>
+        <span class="chip" data-prog="DANCE">DANCE</span>
+      </div>
+      <div class="note" style="margin-top:8px">Tip: click on the world to drop <span class="tag">food</span>. Alt-click for <span class="tag">threat</span>. Shift-click sets <span class="tag">home</span>.</div>
+    </div>
+
+    <div class="panel">
+      <h3>Hive Status</h3>
+      <div class="metric"><span>Coherence</span><span id="cohVal">0.00</span></div>
+      <div class="bar"><i id="cohBar" style="width:0%"></i></div>
+      <div class="metric"><span>Tokens/min</span><span id="tpmVal">0</span></div>
+      <div class="metric"><span>Food collected</span><span id="foodVal">0</span></div>
+      <div class="legend" style="margin-top:8px">
+        <span><i class="dot" style="background:var(--s)"></i>state (s)</span>
+        <span><i class="dot" style="background:var(--l)"></i>loop (l)</span>
+        <span><i class="dot" style="background:var(--h)"></i>hub (h)</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Preset Programs</h3>
+      <div id="presets" class="note"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const DPR = Math.min(2, window.devicePixelRatio || 1);
+  const canvas = document.getElementById('stage');
+  const ctx = canvas.getContext('2d');
+  let W=0,H=0, time=0;
+  const RND = (a=1,b=0)=> b + Math.random()*(a-b);
+  const TAU = Math.PI*2;
+
+  function resize(){
+    const rect = canvas.parentElement.getBoundingClientRect();
+    W = Math.floor(rect.width); H = Math.floor(rect.height);
+    canvas.width = Math.floor(W*DPR); canvas.height = Math.floor(H*DPR);
+    canvas.style.width = W+'px'; canvas.style.height = H+'px';
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+  }
+  window.addEventListener('resize', resize, {passive:true}); resize();
+
+  // ---------- WORLD ----------
+  const world = {
+    food: [], // {x,y,amount}
+    threats: [], // {x,y,r}
+    home: {x: W*0.8, y:H*0.5},
+  };
+
+  // mouse interactions
+  canvas.addEventListener('click', (e)=>{
+    const {x,y,altKey,shiftKey} = e;
+    const r = canvas.getBoundingClientRect();
+    const px = (e.clientX - r.left);
+    const py = (e.clientY - r.top);
+    if (shiftKey){ world.home = {x:px,y:py}; return; }
+    if (altKey){ world.threats.push({x:px,y:py,r:RND(40,24)}); return; }
+    world.food.push({x:px,y:py,amount:RND(120,80)});
+  });
+
+  // ---------- AGENT ----------
+  class Agent{
+    constructor(x,y){
+      this.x=x; this.y=y;
+      this.vx=RND(0.5,-0.5); this.vy=RND(0.5,-0.5);
+      this.angle = RND(TAU); this.speed=RND(1.8,1.2);
+      this.state='s1'; this.stateT=0; this.color='var(--s)';
+      this.trail=[]; this.maxTrail=18;
+      this.msgGlow=0; this.lastTokenTime=0;
+      this.memory = {foods:[]};
+    }
+    step(dt){
+      this.stateT += dt;
+      // sensing
+      const f = nearest(world.food, this.x, this.y);
+      const t = nearest(world.threats, this.x, this.y);
+      const home = world.home;
+
+      // default drift
+      let ax=0, ay=0;
+      const wander = 20; // pixels
+      const theta = noise2(this.x*0.003, this.y*0.003, time*0.15)*TAU;
+      ax += Math.cos(theta)*0.3; ay += Math.sin(theta)*0.3;
+
+      // goal seeking by state
+      if (this.state.startsWith('l')){ // loop: lock to target (food/home)
+        if (f && f.d < 160){ ax += (f.dx)*0.012; ay += (f.dy)*0.012; }
+        else { // if no food nearby, orbit home
+          const dx = home.x - this.x, dy = home.y - this.y; const d=Math.hypot(dx,dy)+1e-6;
+          ax += dx/d*0.008; ay += dy/d*0.008;
+          // tangential swirl
+          ax += -dy/d*0.01; ay += dx/d*0.01;
+        }
+      } else if (this.state==='s1'){ // explore gently
+        if (f && f.d < 220){ ax += (f.dx)*0.006; ay += (f.dy)*0.006; }
+      } else if (this.state==='s5'){ // randomize
+        ax += RND(0.6,-0.6); ay += RND(0.6,-0.6);
+      }
+
+      // threat avoidance
+      if (t && t.d < t.obj.r+80){
+        ax -= (t.dx)/(t.d+1e-6)*0.08; ay -= (t.dy)/(t.d+1e-6)*0.08;
+      }
+
+      // integrate motion
+      this.vx = (this.vx + ax*dt*60) * 0.98;
+      this.vy = (this.vy + ay*dt*60) * 0.98;
+      const speed = Math.hypot(this.vx, this.vy) + 1e-6;
+      const maxS = (this.state.startsWith('l')? 220 : this.state==='s5'? 260: 180);
+      const k = Math.min(1, maxS/(speed*60)); this.vx*=k; this.vy*=k;
+      this.x += this.vx*dt*60; this.y += this.vy*dt*60;
+      this.angle = Math.atan2(this.vy, this.vx);
+      // wrap
+      if (this.x<0) this.x+=W; if (this.x>W) this.x-=W;
+      if (this.y<0) this.y+=H; if (this.y>H) this.y-=H;
+      // trail
+      this.trail.push({x:this.x, y:this.y}); if (this.trail.length>this.maxTrail) this.trail.shift();
+
+      // interact with food
+      if (f && f.d < 16 && f.obj.amount>0){ f.obj.amount -= 0.9; hive.foodCollected += 0.9; this.msgGlow=1; }
+    }
+    draw(g){
+      // glow
+      const c = colorFor(this.state);
+      g.save();
+      g.shadowColor = c; g.shadowBlur = 12; g.globalAlpha = 0.9;
+      // trail
+      g.beginPath();
+      for (let i=0;i<this.trail.length;i++){
+        const p = this.trail[i];
+        if (i===0) g.moveTo(p.x,p.y); else g.lineTo(p.x,p.y);
+      }
+      g.strokeStyle = c; g.lineWidth = 1.5; g.stroke();
+      // body
+      const r=4;
+      g.translate(this.x,this.y); g.rotate(this.angle);
+      g.fillStyle = c;
+      g.beginPath();
+      g.moveTo(6,0); g.lineTo(-4,3); g.lineTo(-4,-3); g.closePath();
+      g.fill();
+      // aura for hubs
+      if (this.state.startsWith('h')){
+        g.globalAlpha = 0.25; g.fillStyle=c; g.beginPath(); g.arc(0,0,12+8*Math.sin(time*2+this.x*0.01),0,TAU); g.fill();
+      }
+      g.restore();
+    }
+  }
+
+  function colorFor(s){ if (s.startsWith('h')) return '#ff56d8'; if (s.startsWith('l')) return '#3dffa0'; return '#5aa8ff'; }
+
+  function nearest(list, x, y){
+    if (!list || !list.length) return null;
+    let best=null, bd=1e9; let obj,dx,dy,d;
+    for (let i=0;i<list.length;i++){
+      obj=list[i]; dx=obj.x-x; dy=obj.y-y; d=Math.hypot(dx,dy);
+      if (d<bd){ bd=d; best={obj,dx,dy,d}; }
+    }
+    return best;
+  }
+
+  // ---------- MTX PROGRAMMER ----------
+  class MTXProgram{
+    constructor(){ this.queue = []; this.active=null; }
+    parse(src){
+      // tokens like h0{0.2s} l3{2s} s1{1.5s}
+      const re=/(h\d+|l\d+|s\d+)\{([0-9]*\.?[0-9]+)s\}/g; let m; this.queue=[];
+      while ((m=re.exec(src))){ this.queue.push({label:m[1], dur:parseFloat(m[2])}); }
+      return this.queue.length>0;
+    }
+    start(){ this.active = this.queue.shift()||null; this.t=0; }
+    step(dt, hive){
+      if (!this.active) return;
+      this.t += dt; // broadcast state to hive brain
+      hive.applyToken(this.active.label);
+      if (this.t >= this.active.dur){ this.active = this.queue.shift()||null; this.t=0; hive.endToken(); }
+    }
+    running(){ return !!this.active; }
+  }
+
+  // ---------- HIVE ----------
+  const hive = {
+    agents:[], program:new MTXProgram(),
+    tpm:0, foodCollected:0, tokenClock:[],
+    currentToken:'', tokenSince:0,
+    init(n=80){
+      this.agents.length=0;
+      for (let i=0;i<n;i++) this.agents.push(new Agent(RND(W*0.2,W*0.8), RND(H*0.2,H*0.8)));
+      this.foodCollected=0; this.tokenClock=[]; this.currentToken=''; this.tokenSince=0;
+    },
+    applyToken(label){
+      if (this.currentToken!==label){ this.currentToken=label; this.tokenSince=0; this.tokenClock.push(performance.now()); }
+      this.tokenSince += 1/60;
+      // map tokens to intents
+      if (label.startsWith('h')){ // hub pulse → sync flash + slight outward push
+        for (const a of this.agents){ a.state = 'h0'; a.stateT=0; a.vx += Math.cos(a.angle)*0.2; a.vy += Math.sin(a.angle)*0.2; }
+      } else if (label.startsWith('l')){ // loop → lock to resources/home
+        for (const a of this.agents){ a.state = 'l3'; a.stateT=0; a.speed = 2.0; }
+      } else { // state → free explore
+        for (const a of this.agents){ a.state = 's1'; }
+      }
+    },
+    endToken(){ /* could mark boundaries for analytics */ },
+    coherence(){
+      const counts = {s:0,l:0,h:0};
+      for (const a of this.agents) counts[a.state[0]]++;
+      const maxC = Math.max(counts.s, counts.l, counts.h);
+      return maxC/Math.max(1,this.agents.length);
+    }
+  };
+  hive.init(90);
+
+  // Preset programs (short, visually distinct "intelligence")
+  const PRESETS = {
+    EXPLORE: 's1{6s} h0{0.2s} s1{6s}',
+    CONVERGE:'h0{0.2s} l3{8s} s1{4s}',
+    SCATTER:'h0{0.2s} s5{6s} s1{4s}',
+    SHIELD: 'h0{0.2s} l5{10s}',
+    DANCE:  'h0{0.15s} l3{3s} h0{0.15s} s5{3s} h0{0.15s} l3{3s}'
+  };
+  document.getElementById('presets').innerHTML = Object.entries(PRESETS)
+    .map(([k,v])=>`<div class="metric"><span>${k}</span><span class="tag">${v}</span></div>`).join('');
+
+  // UI wiring
+  const mtxInput = document.getElementById('mtx');
+  const runBtn = document.getElementById('runBtn');
+  const surpriseBtn = document.getElementById('surpriseBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  document.querySelectorAll('.chip').forEach(el=>{
+    el.addEventListener('click',()=>{ mtxInput.value = PRESETS[el.dataset.prog] || ''; });
+  });
+  runBtn.onclick = ()=>{
+    const src = mtxInput.value.trim();
+    if (!src) return;
+    if (hive.program.parse(src)) hive.program.start();
+  };
+  surpriseBtn.onclick = ()=>{
+    const keys = Object.keys(PRESETS); const pick = PRESETS[keys[Math.floor(Math.random()*keys.length)]];
+    mtxInput.value = pick; if (hive.program.parse(pick)) hive.program.start();
+  };
+  clearBtn.onclick = ()=>{ hive.init(90); world.food=[]; world.threats=[]; };
+
+  // ---------- LOOP ----------
+  let last = performance.now();
+  function frame(now){
+    const dt = Math.min(0.033, (now-last)/1000); last=now; time += dt;
+    update(dt); draw(); requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  function update(dt){
+    // program
+    hive.program.step(dt, hive);
+    // decay tokens/min window (last 60s)
+    const tnow = performance.now();
+    hive.tokenClock = hive.tokenClock.filter(t=> tnow-t < 60000);
+    hive.tpm = hive.tokenClock.length;
+
+    // world decay: food slowly fades glow
+    world.food = world.food.filter(f=> f.amount>0.5);
+
+    // agents
+    for (const a of hive.agents) a.step(dt);
+
+    // update UI
+    const coh = hive.coherence();
+    document.getElementById('cohVal').textContent = coh.toFixed(2);
+    document.getElementById('cohBar').style.width = Math.round(coh*100)+'%';
+    document.getElementById('tpmVal').textContent = hive.tpm.toString();
+    document.getElementById('foodVal').textContent = Math.round(hive.foodCollected).toString();
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    // background subtle grid
+    ctx.save();
+    ctx.globalAlpha = 0.15;
+    ctx.strokeStyle = '#20305a';
+    ctx.lineWidth = 1;
+    for (let x=0;x<W;x+=40){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+    for (let y=0;y<H;y+=40){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+    ctx.restore();
+
+    // home
+    ctx.save();
+    ctx.shadowColor = '#7aa8ff'; ctx.shadowBlur = 20; ctx.globalAlpha=0.9;
+    ctx.fillStyle = '#0b1a40';
+    ctx.beginPath(); ctx.arc(world.home.x, world.home.y, 18, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#7aa8ff'; ctx.lineWidth=2; ctx.stroke();
+    ctx.restore();
+
+    // food
+    for (const f of world.food){
+      const alpha = Math.max(0.2, Math.min(0.9, f.amount/120));
+      ctx.save(); ctx.globalAlpha = alpha; ctx.shadowColor = '#2bff8a'; ctx.shadowBlur=20; ctx.fillStyle='#1b3a2a';
+      ctx.beginPath(); ctx.arc(f.x,f.y, 12,0,TAU); ctx.fill();
+      ctx.strokeStyle = '#2bff8a'; ctx.lineWidth=2; ctx.stroke(); ctx.restore();
+    }
+
+    // threats
+    for (const t of world.threats){
+      ctx.save(); ctx.globalAlpha = 0.25; ctx.shadowColor = '#ff3c6a'; ctx.shadowBlur=18; ctx.fillStyle='#2a0b18';
+      ctx.beginPath(); ctx.arc(t.x,t.y, t.r,0,TAU); ctx.fill();
+      ctx.strokeStyle = '#ff3c6a88'; ctx.lineWidth=1.5; ctx.stroke(); ctx.restore();
+    }
+
+    // agents
+    for (const a of hive.agents) a.draw(ctx);
+
+    // overlay current token glyph
+    if (hive.program.running()){
+      const label = hive.currentToken || '?';
+      const txt = label + ' · ' + hive.tokenSince.toFixed(1) + 's';
+      ctx.save(); ctx.font = '600 48px Inter, system-ui, sans-serif'; ctx.textAlign='center'; ctx.globalAlpha=0.12;
+      const grad = ctx.createLinearGradient(0,0,W,0); grad.addColorStop(0,'#5aa8ff'); grad.addColorStop(1,'#ff56d8');
+      ctx.fillStyle = grad; ctx.fillText(txt, W*0.5, 72); ctx.restore();
+    }
+  }
+
+  // ---------- UTIL: simplex-ish noise for organic drift ----------
+  function noise2(x,y,z=0){
+    // cheap hash noise
+    const s = Math.sin(x*12.9898 + y*78.233 + z*37.719) * 43758.5453;
+    return s - Math.floor(s);
+  }
+})();
+</script>
+</body>
+</html>

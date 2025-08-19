@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartFly - Live Simulation & Logger</title>
+    <style>
+        :root {
+            --bg-color: #0a0a0a;
+            --panel-bg: rgba(0, 20, 40, 0.9);
+            --primary-glow: #00ff88;
+            --secondary-glow: #ff6b9d;
+            --text-color: #e0e0e0;
+            --font: 'Courier New', monospace;
+        }
+
+        body {
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, var(--bg-color) 0%, #1a1a2e 50%, #16213e 100%);
+            color: var(--text-color);
+            font-family: var(--font);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 20px;
+        }
+
+        .simulation-container {
+            border: 2px solid var(--primary-glow);
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 0 20px var(--primary-glow);
+        }
+
+        canvas {
+            display: block;
+            background: #000;
+        }
+
+        .panel {
+            background: var(--panel-bg);
+            border: 2px solid var(--primary-glow);
+            border-radius: 10px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            width: 350px;
+        }
+
+        h1,
+        h2 {
+            margin: 0 0 20px 0;
+            color: var(--secondary-glow);
+            text-align: center;
+            text-shadow: 0 0 10px var(--secondary-glow);
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(45deg, var(--secondary-glow), #c44569);
+            border: none;
+            color: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: var(--font);
+            font-weight: bold;
+            transition: all 0.3s;
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(255, 107, 157, 0.4);
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: 120px 1fr;
+            gap: 10px;
+            font-size: 14px;
+        }
+
+        .metric-label {
+            font-weight: bold;
+            color: var(--primary-glow);
+        }
+
+        .metric-value {
+            font-weight: bold;
+            color: #fff;
+            text-align: right;
+        }
+
+        .event-log {
+            margin-top: 20px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 4px;
+            font-size: 16px;
+            text-align: center;
+            height: 30px;
+            line-height: 30px;
+            color: #ffeb3b;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="simulation-container">
+        <canvas id="simulationCanvas"></canvas>
+    </div>
+
+    <div class="panel">
+        <h1>SmartFly</h1>
+        <button id="startBtn">Start Webcam</button>
+        <h2>Brain State Log</h2>
+        <div class="metrics-grid">
+            <span class="metric-label">Control Index:</span><span class="metric-value" id="ciVal">--</span>
+            <span class="metric-label">Effort (K_eff):</span><span class="metric-value" id="kEffVal">-- Hz</span>
+            <span class="metric-label">WS Coherence:</span><span class="metric-value" id="rWsVal">--</span>
+            <span class="metric-label">MOD Coherence:</span><span class="metric-value" id="rModVal">--</span>
+            <span class="metric-label">PAC (PLV):</span><span class="metric-value" id="plvVal">--</span>
+            <span class="metric-label">Vision (Bright):</span><span class="metric-value" id="brightVal">--</span>
+            <span class="metric-label">Vision (Var):</span><span class="metric-value" id="varVal">--</span>
+        </div>
+        <div class="event-log" id="eventLog">IDLE</div>
+        <button id="downloadBtn" style="margin-top: 20px;">Download Brain Log (CSV)</button>
+    </div>
+
+    <video id="webcamVideo" playsinline style="display:none;"></video>
+
+    <script>
+        // --- NEW: BRAIN STATE LOGGER ---
+        class BrainLogger {
+            constructor() {
+                this.log = [];
+                this.startTime = 0;
+            }
+
+            start() {
+                this.log = [];
+                this.startTime = performance.now();
+                console.log("Brain logging started.");
+            }
+
+            // Log the complete state of the brain at a specific time
+            logState(brain, brain_state) {
+                const timestamp = (performance.now() - this.startTime) / 1000;
+                this.log.push({
+                    timestamp: timestamp.toFixed(4),
+                    CI: brain_state.CI.toFixed(4),
+                    K_eff: brain_state.K_eff.toFixed(4),
+                    R_ws: brain.R_ws.toFixed(4),
+                    R_mod: brain.R_mod.toFixed(4),
+                    PLV: brain.PLV.toFixed(4),
+                    event: brain_state.event.replace('PULSE_', '')
+                });
+            }
+
+            // Convert the log to a downloadable CSV format
+            downloadCSV() {
+                if (this.log.length === 0) {
+                    alert("No data logged yet. Let the simulation run for a bit.");
+                    return;
+                }
+                const headers = "timestamp,CI,K_eff,R_ws,R_mod,PLV,event";
+                const rows = this.log.map(entry =>
+                    `${entry.timestamp},${entry.CI},${entry.K_eff},${entry.R_ws},${entry.R_mod},${entry.PLV},${entry.event}`
+                );
+                const csvContent = "data:text/csv;charset=utf-8," + headers + "\n" + rows.join("\n");
+
+                const encodedUri = encodeURI(csvContent);
+                const link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute("download", "smartfly_brain_log.csv");
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                console.log(`Downloaded ${this.log.length} brain state entries.`);
+            }
+        }
+
+        // --- MATH & NUMPY HELPERS ---
+        const _wrap = (val, min, max) => min + (val - min) % (max - min);
+        const math = {
+            mean: arr => {
+                if (arr.length === 0) return 0;
+                return arr.reduce((a, b) => a + b, 0) / arr.length;
+            },
+            variance: arr => {
+                if (arr.length < 2) return 0;
+                const m = math.mean(arr);
+                return math.mean(arr.map(x => (x - m) ** 2));
+            },
+            angle: arr => {
+                if (arr.length === 0) return 0;
+                let sumX = 0, sumY = 0;
+                for (const phase of arr) {
+                    sumX += Math.cos(phase);
+                    sumY += Math.sin(phase);
+                }
+                return Math.atan2(sumY, sumX);
+            },
+            abs: arr => {
+                if (arr.length === 0) return 0;
+                let sumX = 0, sumY = 0;
+                for (const phase of arr) {
+                    sumX += Math.cos(phase);
+                    sumY += Math.sin(phase);
+                }
+                return Math.hypot(sumX, sumY) / arr.length;
+            }
+        };
+
+        // --- THE "BRAIN" - OSCILLATORY CORTEX & CI CONTROLLER ---
+        class CIController {
+            constructor() {
+                this.w_ws = 0.4; this.w_plv = 0.4; this.w_pen = 0.2;
+                this.R_opt = 0.6;
+                this.CI_low = 0.55; this.CI_high = 0.80; this.CI_target = 0.675;
+                this.kmax_hz = 20.0; this.ki = 6.0; this.leak = 0.15;
+                this.focus_boost_hz = 8.0; this.focus_nudge = 0.12;
+                this.novelty_sigma = 0.7; this.novelty_frac = 0.5;
+                this.pulse_s = 0.25; this.cooldown_s = 0.6; this.hysteresis = 0.02;
+                this.integral = 0.0;
+                this.pulse_end = -1e9;
+                this.last_event_time = -1e9;
+                this.mode = "IDLE";
+            }
+
+            compute_CI(R_ws, R, PLV) {
+                const base = this.w_ws * R_ws + this.w_plv * PLV - this.w_pen * Math.abs(R - this.R_opt);
+                return Math.max(0.0, Math.min(1.0, base));
+            }
+
+            decide(t, R_ws, R, PLV, dt) {
+                const CI = this.compute_CI(R_ws, R, PLV);
+                const e = this.CI_target - CI;
+                this.integral += e * dt;
+                this.integral *= (1.0 - this.leak * dt);
+                const K_base = Math.max(0.0, Math.min(this.kmax_hz, this.ki * this.integral));
+                let event = "NONE", K_eff = K_base, focus_nudge = 0.0, nov_sigma = 0.0;
+
+                if (t < this.pulse_end) {
+                    if (this.mode === "FOCUS") {
+                        K_eff = Math.max(0.0, Math.min(this.kmax_hz, K_base + this.focus_boost_hz));
+                        focus_nudge = this.focus_nudge;
+                    } else if (this.mode === "NOVELTY") {
+                        K_eff = 0.6 * K_base;
+                        nov_sigma = this.novelty_sigma;
+                    }
+                    event = `PULSE_${this.mode}`;
+                } else if ((t - this.last_event_time) >= this.cooldown_s) {
+                    if (CI < (this.CI_low - this.hysteresis)) {
+                        this.mode = "FOCUS"; this.pulse_end = t + this.pulse_s; this.last_event_time = t; event = "FOCUS";
+                        K_eff = Math.max(0.0, Math.min(this.kmax_hz, K_base + this.focus_boost_hz));
+                        focus_nudge = this.focus_nudge;
+                    } else if (CI > (this.CI_high + this.hysteresis)) {
+                        this.mode = "NOVELTY"; this.pulse_end = t + this.pulse_s; this.last_event_time = t; event = "NOVELTY";
+                        K_eff = 0.6 * K_base;
+                        nov_sigma = this.novelty_sigma;
+                    } else {
+                        this.mode = "IDLE";
+                    }
+                }
+                return { K_eff, focus_nudge, nov_sigma, event, CI };
+            }
+        }
+
+        class OscillatoryCortex {
+            constructor() {
+                this.n_modules = 20; this.n_workspace = 5; this.ws_freq_hz = 6.0; this.mod_base_hz = 24.0;
+                this.mod_sigma_hz = 1.0; this.noise_level = 0.035; this.mm_eps_hz = 0.04; this.ws_eps_hz = 0.25;
+                this.pac_power = 2;
+                this.ws_phase = new Float32Array(this.n_workspace).map(() => Math.random() * 2 * Math.PI);
+                this.mod_phase = new Float32Array(this.n_modules).map(() => Math.random() * 2 * Math.PI);
+                this.mod_freqs = new Float32Array(this.n_modules).map(() => this.mod_base_hz + this.mod_sigma_hz * (Math.random() * 2 - 1));
+                this.time = 0.0; this.controller = new CIController();
+                this.R_ws = 0.0; this.R_mod = 0.0; this.PLV = 0.0;
+                this.brightness = 0.0; this.variance = 0.0;
+            }
+
+            process_vision(vision_cone) {
+                const brightness = math.mean(vision_cone) / 255.0;
+                const variance = math.variance(vision_cone) / (255.0 * 128.0);
+                this.brightness = brightness; this.variance = variance;
+                return { ws_drive: brightness * 0.1, mod_drive: variance * 0.2 };
+            }
+
+            update(vision_cone, dt) {
+                const { ws_drive, mod_drive } = this.process_vision(vision_cone);
+                const decision = this.controller.decide(this.time, this.R_ws, this.R_mod, this.PLV, dt);
+
+                const mean_ws = math.angle(this.ws_phase);
+                for (let i = 0; i < this.n_workspace; i++) {
+                    this.ws_phase[i] += 2 * Math.PI * this.ws_freq_hz * dt;
+                    this.ws_phase[i] += (ws_drive + this.noise_level) * (Math.random() * 2 - 1) * Math.sqrt(dt);
+                    this.ws_phase[i] += (2 * Math.PI * this.ws_eps_hz) * Math.sin(mean_ws - this.ws_phase[i]) * dt;
+                    if (decision.focus_nudge > 0.0) {
+                        this.ws_phase[i] = (1.0 - decision.focus_nudge) * this.ws_phase[i] + decision.focus_nudge * mean_ws;
+                    }
+                    this.ws_phase[i] = _wrap(this.ws_phase[i], 0, 2 * Math.PI);
+                }
+                const phi_ws = math.angle(this.ws_phase);
+
+                if (decision.nov_sigma > 0) {
+                    const n_to_jitter = Math.floor(this.n_modules * this.controller.novelty_frac);
+                    for (let i = 0; i < n_to_jitter; i++) {
+                        const idx = Math.floor(Math.random() * this.n_modules);
+                        this.mod_phase[idx] += decision.nov_sigma * (Math.random() * 2 - 1);
+                    }
+                }
+                const mean_mod_phase = math.angle(this.mod_phase);
+                const drive = (0.5 * (1.0 + Math.cos(phi_ws))) ** this.pac_power;
+                const K_rad = 2 * Math.PI * decision.K_eff;
+                const MM_rad = 2 * Math.PI * this.mm_eps_hz;
+                for (let i = 0; i < this.n_modules; i++) {
+                    this.mod_phase[i] += 2 * Math.PI * this.mod_freqs[i] * dt;
+                    this.mod_phase[i] += (mod_drive + this.noise_level) * (Math.random() * 2 - 1) * Math.sqrt(dt);
+                    const phase_diff = 4 * phi_ws - this.mod_phase[i];
+                    this.mod_phase[i] += K_rad * drive * Math.sin(phase_diff) * dt;
+                    this.mod_phase[i] += MM_rad * Math.sin(mean_mod_phase - this.mod_phase[i]) * dt;
+                    this.mod_phase[i] = _wrap(this.mod_phase[i], 0, 2 * Math.PI);
+                }
+
+                this.R_ws = math.abs(this.ws_phase);
+                this.R_mod = math.abs(this.mod_phase);
+                const plv_phases = new Float32Array(this.n_modules).map((_, i) => this.mod_phase[i] - 4 * phi_ws);
+                this.PLV = math.abs(plv_phases);
+                this.time += dt;
+                return { R_ws: this.R_ws, R_mod: this.R_mod, PLV: this.PLV, ...decision };
+            }
+        }
+
+        // --- THE "BODY" - SMARTFLY CLASS ---
+        class SmartFly {
+            constructor(x, y, screen_width, screen_height) {
+                this.x = x; this.y = y; this.screen_width = screen_width; this.screen_height = screen_height;
+                this.angle = Math.random() * 2 * Math.PI; this.vx = 0.0; this.vy = 0.0; this.size = 8.0;
+                this.momentum = 0.8; this.vision_cone_angle = Math.PI / 2.5; this.vision_cone_length = 200;
+                this.vision_samples = 50; this.brain = new OscillatoryCortex();
+                this.action_timer = 0; this.action_type = "NONE";
+            }
+
+            draw(ctx) {
+                const p1 = { x: this.x + this.size * Math.cos(this.angle), y: this.y + this.size * Math.sin(this.angle) };
+                const p2 = { x: this.x + this.size * Math.cos(this.angle + 2.3), y: this.y + this.size * Math.sin(this.angle + 2.3) };
+                const p3 = { x: this.x + this.size * Math.cos(this.angle - 2.3), y: this.y + this.size * Math.sin(this.angle - 2.3) };
+                const CI = this.brain.controller.compute_CI(this.brain.R_ws, this.brain.R_mod, this.brain.PLV);
+                const color_val = Math.floor(200 * CI + 55);
+                const color = `rgb(${color_val}, ${255 - color_val}, 150)`;
+                ctx.strokeStyle = color; ctx.fillStyle = 'rgba(255, 100, 100, 0.8)'; ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y); ctx.closePath(); ctx.stroke();
+                ctx.beginPath(); ctx.arc(p1.x, p1.y, this.size / 3, 0, 2 * Math.PI); ctx.fill();
+            }
+
+            get_vision_cone(imageData) {
+                const cone_pixels = []; const data = imageData.data; const width = imageData.width;
+                for (let i = 0; i < this.vision_samples; i++) {
+                    const angle = this.angle + (Math.random() - 0.5) * this.vision_cone_angle;
+                    const dist = Math.random() * this.vision_cone_length;
+                    const x = Math.floor(this.x + dist * Math.cos(angle));
+                    const y = Math.floor(this.y + dist * Math.sin(angle));
+                    if (x >= 0 && x < width && y >= 0 && y < imageData.height) {
+                        const idx = (y * width + x) * 4;
+                        const gray = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+                        cone_pixels.push(gray);
+                    }
+                }
+                return cone_pixels;
+            }
+
+            update(imageData, dt) {
+                const vision_cone = this.get_vision_cone(imageData);
+                const brain_state = this.brain.update(vision_cone, dt);
+                let base_speed = brain_state.K_eff * 0.5;
+                let turn_impulse = (brain_state.R_ws - 0.5) * 2.0;
+
+                if (this.action_timer > 0) {
+                    this.action_timer -= dt;
+                    if (this.action_type === "DART") base_speed *= 4.0;
+                    else if (this.action_type === "JERK") turn_impulse += (Math.random() - 0.5) * 10.0;
+                } else {
+                    if (brain_state.event.includes("FOCUS")) {
+                        this.action_type = "DART"; this.action_timer = 0.2;
+                    } else if (brain_state.event.includes("NOVELTY")) {
+                        this.action_type = "JERK"; this.action_timer = 0.15;
+                    }
+                }
+
+                const turn_speed = turn_impulse * 0.1;
+                this.angle = _wrap(this.angle + turn_speed * dt * 20.0, 0, 2 * Math.PI);
+                const move_x = Math.cos(this.angle) * base_speed;
+                const move_y = Math.sin(this.angle) * base_speed;
+                this.vx = this.vx * this.momentum + move_x * (1 - this.momentum);
+                this.vy = this.vy * this.momentum + move_y * (1 - this.momentum);
+                this.x += this.vx; this.y += this.vy;
+                if (this.x < 0) this.x += this.screen_width; if (this.y < 0) this.y += this.screen_height;
+                this.x %= this.screen_width; this.y %= this.screen_height;
+                return brain_state;
+            }
+        }
+
+        // --- THE "WORLD" - MAIN APPLICATION LOGIC ---
+        const video = document.getElementById('webcamVideo');
+        const canvas = document.getElementById('simulationCanvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const startBtn = document.getElementById('startBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+
+        let fly, lastTime, animationFrameId;
+        let running = false;
+        const logger = new BrainLogger();
+
+        async function setupWebcam() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                await video.play();
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                fly = new SmartFly(canvas.width / 2, canvas.height / 2, canvas.width, canvas.height);
+                lastTime = performance.now();
+                running = true;
+                logger.start();
+                startBtn.textContent = "Stop Webcam";
+                mainLoop(performance.now());
+            } catch (err) {
+                alert("Could not access webcam. Please check permissions.");
+                console.error(err);
+            }
+        }
+
+        function stopWebcam() {
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+            }
+            cancelAnimationFrame(animationFrameId);
+            running = false;
+            startBtn.textContent = "Start Webcam";
+            ctx.fillStyle = '#0a0a0a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function updateMetrics(brain, brain_state) {
+            document.getElementById('ciVal').textContent = brain_state.CI.toFixed(3);
+            document.getElementById('kEffVal').textContent = `${brain_state.K_eff.toFixed(2)} Hz`;
+            document.getElementById('rWsVal').textContent = brain.R_ws.toFixed(3);
+            document.getElementById('rModVal').textContent = brain.R_mod.toFixed(3);
+            document.getElementById('plvVal').textContent = brain.PLV.toFixed(3);
+            document.getElementById('brightVal').textContent = brain.brightness.toFixed(3);
+            document.getElementById('varVal').textContent = brain.variance.toFixed(3);
+            document.getElementById('eventLog').textContent = brain_state.event.replace('PULSE_', '');
+        }
+
+        function mainLoop(currentTime) {
+            if (!running) return;
+
+            animationFrameId = requestAnimationFrame(mainLoop);
+
+            let dt = (currentTime - lastTime) / 1000;
+            dt = Math.max(0.001, Math.min(0.033, dt));
+            lastTime = currentTime;
+
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+            const brain_state = fly.update(imageData, dt);
+            fly.draw(ctx);
+
+            updateMetrics(fly.brain, brain_state);
+            logger.logState(fly.brain, brain_state);
+        }
+
+        startBtn.addEventListener('click', () => {
+            if (running) {
+                stopWebcam();
+            } else {
+                setupWebcam();
+            }
+        });
+
+        downloadBtn.addEventListener('click', () => {
+            logger.downloadCSV();
+        });
+    </script>
+</body>
+
+</html>
